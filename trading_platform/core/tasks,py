@@ -1,0 +1,62 @@
+# core/tasks.py
+import random
+import requests
+from celery import shared_task
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from .models import Instrument
+
+def fetch_latest_price(instrument):
+    """
+    Takes an Instrument from the database and returns its current live price.
+    """
+    # ---------------------------------------------------------
+    # OPTION 1: SIMULATED DATA (For testing the dashboard)
+    # ---------------------------------------------------------
+    # We assign realistic base prices depending on the asset class
+    base_prices = {
+        'crypto': 68000.00,  # BTC ballpark
+        'stock': 180.00,     # AAPL ballpark
+        'forex': 1.08        # EUR/USD ballpark
+    }
+    
+    base = base_prices.get(instrument.asset_class, 100.00)
+    
+    # Make the price randomly jump up or down by a tiny fraction (max 0.5%)
+    fluctuation = base * random.uniform(-0.005, 0.005)
+    return round(base + fluctuation, 2)
+
+    # ---------------------------------------------------------
+    # OPTION 2: REAL API CALL (Example using Binance for Crypto)
+    # Uncomment this when you are ready for real money data!
+    # ---------------------------------------------------------
+    # try:
+    #     # APIs usually don't like slashes (e.g. "BTC/USDT" needs to be "BTCUSDT")
+    #     clean_symbol = instrument.symbol.replace('/', '')
+    #     url = f"https://api.binance.com/api/v3/ticker/price?symbol={clean_symbol}"
+    #     
+    #     response = requests.get(url)
+    #     data = response.json()
+    #     return round(float(data['price']), 2)
+    # except Exception as e:
+    #     print(f"Error fetching {instrument.symbol}: {e}")
+    #     return 0.0
+
+@shared_task
+def fetch_market_data():
+    for instrument in Instrument.objects.all():
+        # call an external API here; this example uses dummy data
+        # Suppose we fetch price and save or broadcast it
+        price = fetch_latest_price(instrument)  # Now uses our new function!
+        # store to DB or cache ...
+        print(f"Fetched {instrument.symbol} price: {price}")
+        
+@shared_task
+def broadcast_prices():
+    channel_layer = get_channel_layer()
+    for instrument in Instrument.objects.all():
+        price = fetch_latest_price(instrument)  # Now uses our new function!
+        async_to_sync(channel_layer.group_send)(
+            'prices',
+            {'type': 'send_price', 'data': {'symbol': instrument.symbol, 'price': price}}
+        )

@@ -1,0 +1,30 @@
+# agents/risk.py
+from typing import Dict, Any
+from .base import Agent, AgentRegistry
+
+@AgentRegistry.register
+class RiskAgent(Agent):
+    name = "risk"
+
+    def analyze(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        capital = context.get("capital", 0)
+        risk_percent = context.get("risk_percent", 0.02)  # default 2%
+        stop_distance = context.get("stop_distance")
+        if capital <= 0 or stop_distance is None or stop_distance <= 0:
+            return {"agent": self.name, "error": "Invalid capital or stop distance"}
+        # risk per trade in currency
+        risk_amount = capital * risk_percent
+        # quantity is risk amount divided by stop distance
+        quantity = risk_amount / stop_distance
+        # Determine if signals conflict
+        signals = context.get("signals", [])  # list of buy/sell/neutral
+        if signals.count("buy") > 0 and signals.count("sell") > 0:
+            action = "abstain"
+        else:
+            action = signals[0] if signals else "neutral"
+        return {
+            "agent": self.name,
+            "position_size": quantity,
+            "action": action,
+            "risk_amount": risk_amount,
+        }
