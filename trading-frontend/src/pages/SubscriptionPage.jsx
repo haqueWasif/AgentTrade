@@ -6,10 +6,10 @@ import {
   Crown,
   Globe2,
   Lock,
-  Radar,
+  // Radar,
   ShieldCheck,
   Sparkles,
-  Zap,
+  // Zap,
 } from "lucide-react";
 
 import Card from "../components/ui/Card";

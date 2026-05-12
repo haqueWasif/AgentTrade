@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   BrainCircuit,
   CheckCircle2,
-  Flame,
+  // Flame,
   NotebookPen,
-  PieChart,
+  // PieChart,
   ShieldCheck,
-  Target,
+  // Target,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
