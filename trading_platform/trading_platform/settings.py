@@ -10,8 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 from celery.schedules import crontab
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -172,4 +181,38 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {'hosts': [('127.0.0.1', 6379)]},
     },
-}
+}      
+
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1"
+).split(",")
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3-flash-preview")
+
+WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY", "")
+WEB_SEARCH_URL = os.getenv(
+    "WEB_SEARCH_URL",
+    "https://iyjzibfpgvzlwvsjhvnr.supabase.co/functions/v1/web-search",
+)
+WEB_SEARCH_MODEL = os.getenv("WEB_SEARCH_MODEL", "google/gemini-3-flash-preview")
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# AgentTrade AI configuration
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-3-flash-preview")
+
+WEB_SEARCH_URL = os.getenv(
+    "WEB_SEARCH_URL",
+    "https://iyjzibfpgvzlwvsjhvnr.supabase.co/functions/v1/web-search",
+)
+WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY", "")
+WEB_SEARCH_MODEL = os.getenv("WEB_SEARCH_MODEL", "google/gemini-3-flash-preview")
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID", "")

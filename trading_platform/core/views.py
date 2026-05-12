@@ -1,7 +1,37 @@
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import viewsets, status
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from .models import Instrument, Trade, Strategy, Watchlist
-from .serializers import InstrumentSerializer, TradeSerializer, StrategySerializer, WatchlistSerializer
+from .serializers import (
+    InstrumentSerializer,
+    TradeSerializer,
+    StrategySerializer,
+    WatchlistSerializer,
+)
+from .serializers_user import RegisterSerializer
+
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(
+                {
+                    "detail": "Account created successfully.",
+                    "username": user.username,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class InstrumentViewSet(viewsets.ModelViewSet):
     queryset = Instrument.objects.all()
@@ -14,10 +44,11 @@ class TradeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # users should see only their own trades (unless admin)
         user = self.request.user
-        if user.role == 'admin':
+
+        if user.role == "admin":
             return Trade.objects.all()
+
         return Trade.objects.filter(trader=user)
 
     def perform_create(self, serializer):
@@ -29,13 +60,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        return Strategy.objects.filter(trader=user)
+        return Strategy.objects.filter(trader=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(trader=self.request.user)
-        
-# core/views.py (add this class)
+
+
 class WatchlistViewSet(viewsets.ModelViewSet):
     serializer_class = WatchlistSerializer
     permission_classes = [IsAuthenticated]

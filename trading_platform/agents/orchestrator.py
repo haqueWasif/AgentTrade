@@ -1,43 +1,88 @@
-# agents/orchestrator.py
-from typing import Dict, Any, List
+# trading_platform/agents/orchestrator.py
+
+from typing import Any, Dict, List
+
 from .base import AgentRegistry
+
+# Import package side effects so agents register themselves.
+import agents  # noqa: F401
+
 
 class Orchestrator:
     def __init__(self, agents: List[str]):
-        # Accept agent names; look them up in registry
-        self.agent_classes = [AgentRegistry.get_agent(name) for name in agents]
+        self.agent_names = agents
+
+    def _get_available_agents(self):
+        available = []
+
+        for name in self.agent_names:
+            try:
+                available.append(AgentRegistry.get_agent(name))
+            except KeyError:
+                available.append(None)
+
+        return available
 
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         results = []
         signals = []
-        # Execute each agent
-        for agent_cls in self.agent_classes:
+
+        agent_classes = self._get_available_agents()
+
+        # Run all non-risk agents first.
+        risk_agent_cls = None
+
+        for agent_cls in agent_classes:
+            if agent_cls is None:
+                results.append({
+                    "agent": "unknown",
+                    "error": "Agent is not registered.",
+                })
+                continue
+
+            if agent_cls.name == "risk":
+                risk_agent_cls = agent_cls
+                continue
+
             agent = agent_cls()
             result = agent.analyze(context)
             results.append(result)
-            # Collect signals for risk agent
+
             if result.get("signal"):
                 signals.append(result["signal"])
-        # Provide aggregated signals to risk agent if risk agent is included
-        if "risk" in [cls.name for cls in self.agent_classes]:
-            context = dict(context)  # copy
-            context["signals"] = signals
+
+        # Run risk after signals are collected.
+        if risk_agent_cls:
+            risk_context = dict(context)
+            risk_context["signals"] = signals
+            risk_agent = risk_agent_cls()
+            results.append(risk_agent.analyze(risk_context))
+
         return {
             "results": results,
             "summary": self.summarize(results),
         }
 
     def summarize(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Combine signals into a consensus recommendation."""
-        signal_counts = {"buy": 0, "sell": 0, "neutral": 0}
-        for r in results:
-            s = r.get("signal")
-            if s and s in signal_counts:
-                signal_counts[s] += 1
-        # majority vote
+        signal_counts = {
+            "buy": 0,
+            "sell": 0,
+            "neutral": 0,
+        }
+
+        for result in results:
+            signal = result.get("signal")
+            if signal in signal_counts:
+                signal_counts[signal] += 1
+
         if signal_counts["buy"] > signal_counts["sell"]:
-            return {"recommendation": "buy", "counts": signal_counts}
+            recommendation = "buy"
         elif signal_counts["sell"] > signal_counts["buy"]:
-            return {"recommendation": "sell", "counts": signal_counts}
+            recommendation = "sell"
         else:
-            return {"recommendation": "neutral", "counts": signal_counts}
+            recommendation = "neutral"
+
+        return {
+            "recommendation": recommendation,
+            "counts": signal_counts,
+        }
