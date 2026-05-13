@@ -58,7 +58,8 @@ INSTALLED_APPS = [
     "core",
     "agents",
     "journal",
-    "subscriptions"
+    "subscriptions",
+    "market_data"
 ]
 
 MIDDLEWARE = [
@@ -186,6 +187,8 @@ STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID", "")
 
 # --- PRODUCTION SECURITY ---
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "")
 
 if not DEBUG:
     SESSION_COOKIE_SECURE = True

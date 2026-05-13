@@ -5,12 +5,12 @@ import {
   Crosshair,
   Layers3,
   Newspaper,
-  Search,
+  // Search,
   ShieldCheck,
   Sparkles,
   Target,
   TerminalSquare,
-  Zap,
+  // Zap,
 } from "lucide-react";
 
 import API, { getApiErrorMessage } from "../services/api";
@@ -130,6 +130,8 @@ export default function AgentsPage() {
   const [error, setError] = useState("");
 
   const report = analysis?.ai_report;
+  const marketContext = analysis?.market_context;
+  const marketSnapshot = marketContext?.snapshot;
   const provider = analysis?.provider_status?.synthesis_provider || "standby";
   const recommendation = report?.recommendation?.toLowerCase();
 
@@ -167,6 +169,7 @@ export default function AgentsPage() {
         capital: form.account_size,
         news: form.notes,
         journal_entry: form.notes,
+        sync_market_data: true,
       };
 
       const res = await API.post("agents/run/", payload);
@@ -190,7 +193,9 @@ export default function AgentsPage() {
       const res = await API.post("agents/chat/", {
         message: chatMessage,
         symbol: form.symbol,
+        asset_class: form.asset_class,
         use_web_search: true,
+        sync_market_data: true,
       });
 
       setChatAnswer(res.data.answer);
@@ -405,6 +410,7 @@ export default function AgentsPage() {
             </div>
           </Card>
 
+          
           <Card title="Decision Report" subtitle="Structured output from the agent desk">
             {!report ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center">
@@ -419,6 +425,78 @@ export default function AgentsPage() {
               </div>
             ) : (
               <div className="space-y-6">
+                
+                {/* ---------- MARKET SNAPSHOT DATA INSERTED HERE ---------- */}
+                {marketSnapshot && (
+                  <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-widest text-cyan-300">
+                          Grounded Market Data
+                        </p>
+
+                        {marketSnapshot?.data_freshness === "fresh_quote_stale_candles" && (
+                            <div className="mt-4 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-4 text-sm leading-6 text-yellow-100">
+                              Realtime quote is available, but the daily candle data is stale. AgentTrade
+                              disabled BSL/SSL levels to prevent false liquidity analysis.
+                            </div>
+                        )}
+
+                        <h3 className="mt-2 text-xl font-black text-white">
+                          {marketSnapshot.symbol || form.symbol}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-400">
+                          Source: {marketSnapshot.provider || "Unavailable"} · Freshness:{" "}
+                          {marketSnapshot.data_freshness || "missing"}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`rounded-full px-4 py-2 text-sm font-black ${
+                          marketSnapshot.data_freshness === "fresh"
+                            ? "bg-emerald-400/10 text-emerald-300"
+                            : marketSnapshot.data_freshness === "partial_quote_only"
+                              ? "bg-yellow-400/10 text-yellow-300"
+                              : "bg-red-400/10 text-red-300"
+                        }`}
+                      >
+                        {marketSnapshot.data_freshness || "missing"}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 md:grid-cols-5">
+                      {[
+                          ["Current", marketSnapshot.current_price],
+                          ["Verified BSL", marketSnapshot.buy_side_liquidity],
+                          ["Verified SSL", marketSnapshot.sell_side_liquidity],
+                          ["PDH", marketSnapshot.previous_day_high],
+                          ["PDL", marketSnapshot.previous_day_low],
+                          ["Swing High", marketSnapshot.recent_swing_high],
+                          ["Swing Low", marketSnapshot.recent_swing_low],
+                        ].map(([label, value]) => (
+                          <div
+                            key={label}
+                            className="rounded-2xl border border-white/10 bg-slate-950/50 p-4"
+                          >
+                            <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                              {label}
+                            </p>
+                            <p className="mt-2 text-lg font-black text-white">
+                              {value ?? "Unavailable"}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+
+                    <p className="mt-4 text-xs text-slate-400">
+                      Snapshot timestamp: {marketSnapshot.timestamp || "Unavailable"}. Exact
+                      liquidity levels are only shown when backed by stored market data.
+                    </p>
+                  </div>
+                )}
+                {/* --------------------------------------------------------- */}
+
                 <div className="grid gap-4 md:grid-cols-4">
                   <div className="rounded-2xl bg-cyan-400 p-5 text-slate-950">
                     <p className="text-xs font-black uppercase tracking-widest">
@@ -456,7 +534,8 @@ export default function AgentsPage() {
                     </p>
                   </div>
                 </div>
-
+                
+                
                 <ReportSection title="Trading Thesis" data={report.thesis} icon={Target} />
                 <ReportSection title="Fundamentals / Macro" data={report.fundamental_analysis} icon={Newspaper} />
                 <ReportSection title="Technicals" data={report.technical_analysis} icon={CandlestickChart} />

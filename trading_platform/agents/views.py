@@ -10,8 +10,8 @@ from .ai_client import (
     current_utc_date
 )
 from .orchestrator import Orchestrator
-
-
+from .market_context import build_market_context
+from .grounding import enforce_grounded_chat_answer, enforce_grounded_report
 
 def safe_float(value, default):
     try:
@@ -133,24 +133,25 @@ def build_agentic_prompt(context, local_output, web_answer):
     return f"""
 You are AgentTrade, a professional AI trading research desk.
 
-Your task is to produce an advanced institutional-style trading analysis that helps the trader build a repeatable, risk-controlled trading system.
+Your job is to produce an advanced trader-grade analysis that helps the user build a repeatable, risk-controlled trading process.
 
-Analyze using these frameworks:
+CRITICAL MARKET DATA RULES:
+- The source of truth for exact levels is context["market_context"].
+- Do NOT invent current price, support, resistance, SSL, BSL, FVG, order block, previous day high, previous day low, or liquidity levels.
+- Only mention exact levels if they are present inside context["market_context"]["snapshot"].
+- If context["market_context"]["exact_levels_available"] is false, clearly say exact current levels are unavailable.
+- If web-search context conflicts with market_context, trust market_context.
+- If data_freshness is stale, delayed, missing, provider_error, or partial_quote_only, warn the user.
+- Do not use historical/stale levels unless the user explicitly asks for historical analysis.
+
+Analyze using:
 - Fundamentals and macro context
-- Technical trend, momentum, support/resistance
-- Smart Money Concepts: liquidity pools, displacement, market structure shift, breaker/order block logic
-- ICT concepts: premium/discount, fair value gaps, liquidity sweep, kill zones/session timing
-- Risk model: max loss, invalidation, position sizing logic
-- Execution model: entry trigger, confirmation, stop logic, target logic
-- Trading psychology and journaling review
-
-Important:
-- Do not guarantee profitability.
-- Do not give blind buy/sell calls.
-- Focus on building a repeatable process.
-- Separate thesis from execution.
-- If fresh data is missing or stale, say so clearly.
-- If a framework does not apply to the asset class, say that.
+- Technical trend and market structure
+- Smart Money Concepts: liquidity, displacement, structure shift, order blocks
+- ICT concepts: premium/discount, FVGs, sweep, session logic
+- Risk model: invalidation, max loss, position sizing
+- Execution model: entry trigger, confirmation, no-trade conditions
+- Journal review: rules, mistake tracking, review prompts
 
 Return ONLY valid JSON with this schema:
 
@@ -158,6 +159,20 @@ Return ONLY valid JSON with this schema:
   "recommendation": "buy | sell | neutral | wait",
   "confidence": 0,
   "market_regime": "trend | range | breakout | distribution | accumulation | high-volatility | uncertain",
+  "data_status": {{
+    "freshness": "fresh | delayed | stale | missing | provider_error | partial_quote_only | unknown",
+    "source": "provider/source name",
+    "timestamp": "timestamp or unavailable",
+    "warning": "warning if data is incomplete"
+  }},
+  "current_data": {{
+    "symbol": "symbol",
+    "current_price": "exact value from market_context or unavailable",
+    "buy_side_liquidity": "exact value from market_context or unavailable",
+    "sell_side_liquidity": "exact value from market_context or unavailable",
+    "previous_day_high": "exact value from market_context or unavailable",
+    "previous_day_low": "exact value from market_context or unavailable"
+  }},
   "thesis": "professional trading thesis",
   "fundamental_analysis": {{
     "summary": "fundamental or macro read",
@@ -168,16 +183,18 @@ Return ONLY valid JSON with this schema:
   "technical_analysis": {{
     "trend": "trend read",
     "momentum": "momentum read",
-    "support": ["level or zone"],
-    "resistance": ["level or zone"],
+    "support": ["only levels from market_context or unavailable"],
+    "resistance": ["only levels from market_context or unavailable"],
     "key_observations": ["observation"]
   }},
   "smart_money_analysis": {{
     "market_structure": "structure read",
-    "liquidity_zones": ["zone"],
-    "fair_value_gaps": ["gap or none"],
-    "order_blocks": ["zone or none"],
-    "premium_discount": "premium/discount context",
+    "liquidity_zones": ["only levels from market_context or unavailable"],
+    "sell_side_liquidity_ssl": "exact value from market_context or unavailable",
+    "buy_side_liquidity_bsl": "exact value from market_context or unavailable",
+    "fair_value_gaps": ["only if inferable from supplied candles, otherwise unavailable"],
+    "order_blocks": ["only if inferable from supplied candles, otherwise unavailable"],
+    "premium_discount": "premium/discount context based on supplied candles only",
     "ict_notes": ["note"]
   }},
   "execution_plan": {{
@@ -202,7 +219,7 @@ Return ONLY valid JSON with this schema:
   }},
   "risks": ["risk"],
   "action_plan": ["step"],
-  "web_context_summary": "summary of current market context",
+  "web_context_summary": "summary",
   "agent_summary": [
     {{
       "agent": "name",
@@ -214,20 +231,43 @@ Return ONLY valid JSON with this schema:
 Context:
 {context}
 
-Local agent output:
+Local deterministic agent output:
 {local_output}
 
 Fresh web-search context:
 {web_answer}
 """
 
-
 class RunAgentsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         context = build_context(request.data)
+        market_context = build_market_context(
+            symbol=context["symbol"],
+            asset_class=context.get("asset_class") or context.get("market_type", "forex"),
+            auto_sync=bool(request.data.get("sync_market_data", True)),
+        )
 
+        context["market_context"] = market_context
+
+        snapshot = market_context.get("snapshot") or {}
+
+        if market_context.get("ok") and market_context.get("candles"):
+            context["prices"] = [
+                candle["close"]
+                for candle in reversed(market_context["candles"])
+                if candle.get("close") is not None
+            ]
+
+        if snapshot.get("current_price"):
+            context["current_price"] = snapshot.get("current_price")
+
+        if snapshot.get("buy_side_liquidity"):
+            context["buy_side_liquidity"] = snapshot.get("buy_side_liquidity")
+
+        if snapshot.get("sell_side_liquidity"):
+            context["sell_side_liquidity"] = snapshot.get("sell_side_liquidity")
         agent_names = request.data.get(
             "agents",
             ["technical", "fundamental", "sentiment", "strategy", "risk"],
@@ -312,8 +352,14 @@ class RunAgentsView(APIView):
                 )
                 synthesis_provider = "local-fallback"
 
+            parsed_report = enforce_grounded_report(
+                report=parsed_report,
+                market_context=market_context,
+            )
+            
         return Response({
             "context": context,
+            "market_context": market_context,
             "local": local_output,
             "web_search": web_result,
             "ai_report": parsed_report,
@@ -325,6 +371,10 @@ class RunAgentsView(APIView):
                 "openrouter_error": ai_response.get("error", ""),
                 "web_search_ok": web_result.get("ok", False),
                 "web_search_error": web_result.get("error", ""),
+                "market_data_ok": market_context.get("ok", False),
+                "market_data_freshness": (
+                    market_context.get("snapshot") or {}
+                ).get("data_freshness", "missing"),
             },
         })
 
@@ -335,6 +385,15 @@ class AgentChatView(APIView):
     def post(self, request):
         message = request.data.get("message", "").strip()
         symbol = request.data.get("symbol", "").strip()
+        
+        asset_class = request.data.get("asset_class", "forex")
+
+        market_context = build_market_context(
+            symbol=symbol or "EUR/USD",
+            asset_class=asset_class,
+            auto_sync=bool(request.data.get("sync_market_data", True)),
+        )
+        
         use_web_search = bool(request.data.get("use_web_search", True))
 
         if not message:
@@ -350,8 +409,6 @@ class AgentChatView(APIView):
             web_context = web_result.get("answer", "")
 
         prompt = f"""
-Today is {current_utc_date()} UTC.
-
 You are AgentTrade's professional trading copilot.
 
 User question:
@@ -363,12 +420,15 @@ Symbol:
 Fresh web context:
 {web_context}
 
-Rules:
-- Do not use stale market data.
-- Do not mention 2024 data unless the user asks for historical analysis.
-- If the web context is not current, clearly say current data is unavailable.
-- Mention risks and invalidation.
-- Do not promise profits.
+Grounded market context:
+{market_context}
+
+CRITICAL RULES:
+- Do not invent exact price levels.
+- Only mention SSL, BSL, current price, previous day high/low, support, resistance, FVG, or order block if it exists in Grounded market context.
+- If exact levels are unavailable, say exact current levels are unavailable.
+- If data freshness is stale, delayed, missing, provider_error, or partial_quote_only, warn the user.
+- If web context conflicts with market context, trust market context.
 
 Format your answer in clean markdown with:
 - short sections
@@ -380,7 +440,6 @@ Format your answer in clean markdown with:
 Do not guarantee profits.
 Mention risk and invalidation where relevant.
 Make the answer useful for a serious trader.
-
 """
         openrouter = OpenRouterClient()
 
@@ -401,11 +460,17 @@ Make the answer useful for a serious trader.
             )
 
             if response.get("ok"):
-                return Response({
-                    "answer": response.get("content", ""),
-                    "web_context": web_context,
-                    "provider": "openrouter",
-                })
+                grounded_answer = enforce_grounded_chat_answer(
+                answer=response.get("content", ""),
+                market_context=market_context,
+            )
+
+            return Response({
+                "answer": grounded_answer,
+                "web_context": web_context,
+                "market_context": market_context,
+                "provider": "openrouter",
+            })
 
         # Fallback to your web-search AI endpoint.
         fallback = WebSearchClient().search(prompt)
@@ -414,6 +479,7 @@ Make the answer useful for a serious trader.
             return Response({
                 "answer": fallback.get("answer", ""),
                 "web_context": web_context,
+                "market_context": market_context,
                 "provider": "web-search-ai",
             })
 

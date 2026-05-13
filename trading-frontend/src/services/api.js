@@ -88,7 +88,7 @@ export function getApiErrorMessage(error) {
   const data = error?.response?.data;
 
   if (!data) {
-    return "Could not connect to the server. Make sure the Django backend is running.";
+    return "Could not connect to the backend server. Check REACT_APP_API_BASE.";
   }
 
   if (typeof data === "string") {

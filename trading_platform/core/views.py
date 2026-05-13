@@ -13,6 +13,7 @@ from .serializers import (
 from .serializers_user import RegisterSerializer
 
 
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
